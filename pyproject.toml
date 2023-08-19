@@ -1,0 +1,25 @@
+[project]
+authors = [
+  {name = "Cody Fincher", email = "codyfincher@google.com"},
+]
+dependencies = [
+  "aiosql>=9.0",
+  "msgspec>=0.18.0",
+  "google-re2>=1.1",
+  "rich>=13.5.2",
+  "rich-click>=1.6.1",
+  "click>=8.1.6",
+]
+description = "Fullstack but with SQL and no ORM"
+license = {text = "MIT"}
+name = "sqlstack"
+packages = [
+  {include = "app", from = "src/server"},
+]
+readme = "README.md"
+requires-python = ">=3.8"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
