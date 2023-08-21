@@ -8,16 +8,14 @@ from app.lib.exceptions import ApplicationError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    from sqlalchemy.ext.asyncio import AsyncSession
+ 
 
     from aiosql.queries import Queries
 
 __all__ = ["AiosqlQueryManager"]
 
 AiosqlQueryManagerT = TypeVar("AiosqlQueryManagerT", bound="AiosqlQueryManager")
-SqlAlchemyAiosqlQueryManagerT = TypeVar("SqlAlchemyAiosqlQueryManagerT", bound="SqlAlchemyAiosqlQueryManager")
-
+ 
 
 class QueryNotFoundError(ApplicationError):  # type: ignore
     """Query Not Found"""
@@ -72,7 +70,7 @@ class AiosqlQueryManager:
         try:
             return getattr(self.queries, method)
         except AttributeError as exc:
-            raise NotImplementedError("%s was not found", method) from exc
+            raise QueryNotFoundError("%s was not found", method) from exc
 
     @property
     def available_queries(self) -> list[str]:
@@ -82,30 +80,4 @@ class AiosqlQueryManager:
         """
         return sorted([q for q in self.queries.available_queries if not q.endswith("_cursor")])
 
-
-class SqlAlchemyAiosqlQueryManager(AiosqlQueryManager):
-    @staticmethod
-    async def get_connection_from_session(session: AsyncSession) -> Any:
-        db_connection = await session.connection()
-        raw_connection = await db_connection.get_raw_connection()
-        if raw_connection.driver_connection:
-            return raw_connection.driver_connection
-        raise ApplicationError("Unable to fetch raw connection from session.")
-
-    @classmethod
-    @contextlib.asynccontextmanager
-    async def from_session(
-        cls: type[SqlAlchemyAiosqlQueryManagerT],
-        queries: Queries,
-        session: AsyncSession | None = None,
-    ) -> AsyncIterator[SqlAlchemyAiosqlQueryManagerT]:
-        """Context manager that returns instance of query manager object.
-
-        Returns:
-            The service object instance.
-        """
-        if session is not None:
-            yield cls(connection=(await cls.get_connection_from_session(session)), queries=queries)
-        else:
-            async with async_session_factory() as session:
-                yield cls(connection=(await cls.get_connection_from_session(session)), queries=queries)
+ 
