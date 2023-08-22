@@ -3,20 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
+from asyncpg import Record
+from asyncpg import create_pool as asyncpg_create_pool
+from asyncpg.connection import Connection
+from asyncpg.pool import Pool, PoolConnectionProxy
+from asyncpg.transaction import Transaction
 from litestar.constants import HTTP_DISCONNECT, HTTP_RESPONSE_START, WEBSOCKET_CLOSE, WEBSOCKET_DISCONNECT
-from litestar.contrib.sqlalchemy.plugins import _slots_base
 from litestar.exceptions import ImproperlyConfiguredException
 from litestar.plugins import InitPluginProtocol
 from litestar.serialization import encode_json
 from litestar.types import Empty
 from litestar.utils import get_litestar_scope_state, set_litestar_scope_state
 from litestar.utils.dataclass import simple_asdict
-
-from asyncpg import Record
-from asyncpg import create_pool as asyncpg_create_pool
-from asyncpg.connection import Connection
-from asyncpg.pool import Pool, PoolConnectionProxy
-from asyncpg.transaction import Transaction
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
@@ -37,6 +35,13 @@ ConnectionT = TypeVar("ConnectionT", bound=Connection)
 RecordT = TypeVar("RecordT", bound=Record)
 PoolT = TypeVar("PoolT", bound=Pool)
 TransactionT = TypeVar("TransactionT", bound=Transaction)
+
+
+class SlotsBase:
+    __slots__ = (
+        "_config",
+        "_type_dto_map",
+    )
 
 
 def serializer(value: Any) -> str:
@@ -209,7 +214,7 @@ class AsyncpgConfig:
         app.state.update(self.create_app_state_items())
 
 
-class AsyncpgPlugin(InitPluginProtocol, _slots_base.SlotsBase):
+class AsyncpgPlugin(InitPluginProtocol, SlotsBase):
     """Asyncpg plugin."""
 
     __slots__ = ()

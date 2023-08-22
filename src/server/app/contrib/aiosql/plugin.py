@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
-from litestar.contrib.sqlalchemy.plugins import _slots_base
 from litestar.plugins import InitPluginProtocol
 
-from .service import AiosqlQueryManager
+from .manager import AiosqlQueryManager
 
 __all__ = ["AioSQLConfig", "AioSQLPlugin"]
 
@@ -19,8 +18,12 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+class SlotsBase:
+    __slots__ = ("_config",)
+
+
 @dataclass
-class AioSQLConfig(Generic[T]):
+class AioSQLConfig:
     """AioSQL Configuration."""
 
     @property
@@ -33,7 +36,7 @@ class AioSQLConfig(Generic[T]):
         return {"AiosqlQueryManager": AiosqlQueryManager}
 
 
-class AioSQLPlugin(InitPluginProtocol, _slots_base.SlotsBase):
+class AioSQLPlugin(InitPluginProtocol, SlotsBase):
     """AioSQL plugin."""
 
     __slots__ = ()

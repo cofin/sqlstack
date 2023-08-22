@@ -3,7 +3,7 @@
 ENV_PREFIX=$(shell python3 -c "if __import__('pathlib').Path('.venv/bin/pip').exists(): print('.venv/bin/')")
 USING_PDM=$(shell python3 -c "if __import__('pathlib').Path('pdm.lock').exists(): print('yes')")
 PDM_INSTALLED=$(shell if pdm --version > /dev/null; then echo "yes"; fi)
-VENV_EXISTS=$(shell python3 -c "if __import__('pathlib').Path('.venv/bin/activate').exists(): print('yes')") 
+VENV_EXISTS=$(shell python3 -c "if __import__('pathlib').Path('.venv/bin/activate').exists(): print('yes')")
 VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 BUILD_DIR=dist
 
@@ -22,7 +22,7 @@ help:													## Display this help
 .PHONY: upgrade
 upgrade:												## Upgrade all dependencies to the latest stable versions
 	@if [ "$(USING_PDM)" ]; then pdm update; fi
-	@echo "Python Dependencies Updated" 
+	@echo "Python Dependencies Updated"
 	$(ENV_PREFIX)pre-commit autoupdate
 	@echo "Updated Pre-commit"
 
@@ -71,4 +71,4 @@ lint:													## Lint source files
 build:                        							## Install the project in dev mode.
 	@echo "=> Building Application..."
 	@pdm build
- 
+

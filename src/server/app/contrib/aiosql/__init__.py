@@ -1,3 +1,4 @@
-from .service import AiosqlQueryManager
+from .manager import AiosqlQueryManager
+from .plugin import AioSQLConfig, AioSQLPlugin
 
-__all__ = ["AiosqlQueryManager"]
+__all__ = ["AiosqlQueryManager", "AioSQLPlugin", "AioSQLConfig"]

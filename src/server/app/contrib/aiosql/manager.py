@@ -3,19 +3,17 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from app.lib.db.base import async_session_factory
 from app.lib.exceptions import ApplicationError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
- 
 
     from aiosql.queries import Queries
 
 __all__ = ["AiosqlQueryManager"]
 
 AiosqlQueryManagerT = TypeVar("AiosqlQueryManagerT", bound="AiosqlQueryManager")
- 
+
 
 class QueryNotFoundError(ApplicationError):  # type: ignore
     """Query Not Found"""
@@ -79,5 +77,3 @@ class AiosqlQueryManager:
         Returns a sorted list of available functions found in aiosql
         """
         return sorted([q for q in self.queries.available_queries if not q.endswith("_cursor")])
-
- 
