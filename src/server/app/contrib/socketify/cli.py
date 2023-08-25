@@ -85,4 +85,4 @@ def run_command(
     console.rule("[yellow]Starting [blue]socketify[/] server process[/]", align="left")
 
     show_app_info(app)
-    ASGI(app=app).listen(port).run(workers=workers)
+    ASGI(app=app, lifespan=False).listen(port).run(workers=workers)

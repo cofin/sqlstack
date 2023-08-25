@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ def run_cli() -> None:
     """Application Entrypoint."""
     current_path = Path(__file__).parent.parent.resolve()
     sys.path.append(str(current_path))
+    os.environ["LITESTAR_APP"] = "app.asgi:create_app"
     try:
         from litestar.__main__ import run_cli as litestar_run_cli
     except ImportError as exc:

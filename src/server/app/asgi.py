@@ -16,7 +16,6 @@ def create_app() -> Litestar:
 
     return Litestar(
         plugins=[
-            domain.plugins.socketify,
             domain.plugins.asyncpg,
             domain.plugins.aiosql,
         ],

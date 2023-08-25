@@ -1,12 +1,14 @@
 .DEFAULT_GOAL:=help
 .ONESHELL:
 ENV_PREFIX=$(shell python3 -c "if __import__('pathlib').Path('.venv/bin/pip').exists(): print('.venv/bin/')")
-USING_PDM=$(shell python3 -c "if __import__('pathlib').Path('pdm.lock').exists(): print('yes')")
+USING_PDM=$(shell grep "tool.pdm" pyproject.toml && echo "yes")
 PDM_INSTALLED=$(shell if pdm --version > /dev/null; then echo "yes"; fi)
 VENV_EXISTS=$(shell python3 -c "if __import__('pathlib').Path('.venv/bin/activate').exists(): print('yes')")
 VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 BUILD_DIR=dist
-
+PDM_OPTS 		?=
+PDM 			?= 	pdm $(PDM_OPTS)
+PDM_RUN_BIN 	= 	$(PDM) run
 
 .EXPORT_ALL_VARIABLES:
 
@@ -31,7 +33,8 @@ upgrade:												## Upgrade all dependencies to the latest stable versions
 install:												## Install the project in dev mode.
 	@if ! pdm --version > /dev/null; then echo 'pdm is required, installing from from https://pdm.fming.dev/'; curl -sSL https://pdm.fming.dev/install-pdm.py | python3 - ; fi
 	@if [ "$(VENV_EXISTS)" ]; then echo "Removing existing environment" && rm -Rf .venv;  fi
-	@if [ "$(USING_PDM)" ]; then pdm install; fi
+	if [ "$(USING_PDM)" ]; then $(PDM) config venv.in_project true && python3 -m venv --copies .venv && source .venv/bin/activate && .venv/bin/pip install -U wheel setuptools cython pip; fi
+	if [ "$(USING_PDM)" ]; then $(PDM) install -G:all ; fi
 	@echo "=> Install complete.  ** If you want to re-install re-run 'make install'"
 
 
