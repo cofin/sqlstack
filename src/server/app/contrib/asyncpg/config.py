@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -27,10 +26,12 @@ if TYPE_CHECKING:
     from litestar.types.asgi_types import HTTPResponseStartEvent
 
 POOL_SCOPE_KEY = "_asyncpg_db_pool"
-SESSION_SCOPE_KEY = "_asyncpg_db_connection"
+CONNECTION_SCOPE_KEY = "_asyncpg_db_connection"
+TRANSACTION_SCOPE_KEY = "_asyncpg_db_transaction"
+
 SESSION_TERMINUS_ASGI_EVENTS = {HTTP_RESPONSE_START, HTTP_DISCONNECT, WEBSOCKET_DISCONNECT, WEBSOCKET_CLOSE}
 T = TypeVar("T")
-ConnectionT = TypeVar("ConnectionT", bound=Connection)
+ConnectionT = TypeVar("ConnectionT", bound=Connection | PoolConnectionProxy)
 RecordT = TypeVar("RecordT", bound=Record)
 PoolT = TypeVar("PoolT", bound=Pool)
 TransactionT = TypeVar("TransactionT", bound=Transaction)
@@ -50,13 +51,13 @@ async def default_before_send_handler(message: Message, scope: Scope) -> None:
     Returns:
         None
     """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
-    if pool and session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-        await pool.release(session)
-        delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
+    connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
+    pool = connection._holder._pool if connection else None
+    if pool and connection and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
+        # wait for a max of 5 seconds to close the session.
+        await pool.release(connection, timeout=5)
+        delete_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY)
+        delete_litestar_scope_state(scope, CONNECTION_SCOPE_KEY)
 
 
 async def autocommit_before_send_handler(message: Message, scope: Scope) -> None:
@@ -69,20 +70,21 @@ async def autocommit_before_send_handler(message: Message, scope: Scope) -> None
     Returns:
         None
     """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
+    connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
+    pool = connection._holder._pool if connection else None
+    transaction = cast("Transaction | None", get_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY))
     try:
-        if session is not None and message["type"] == HTTP_RESPONSE_START:
+        if transaction is not None and message["type"] == HTTP_RESPONSE_START:
             if 200 <= cast("HTTPResponseStartEvent", message)["status"] < 300:
-                await session.commit()
+                await transaction.commit()
             else:
-                await session.rollback()
+                await transaction.rollback()
     finally:
-        if session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-            await asyncio.wait_for(pool.release(session))
-            delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
+        if transaction and connection and pool and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
+            # wait for a max of 5 seconds to close the session.
+            await pool.release(connection, timeout=5)
+            delete_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY)
+            delete_litestar_scope_state(scope, CONNECTION_SCOPE_KEY)
 
 
 def serializer(value: Any) -> str:
@@ -151,12 +153,10 @@ class AsyncpgConfig:
     """
     pool_dependency_key: str = "db_pool"
     """Key to use for the dependency injection of database pool."""
-    session_dependency_key: str = "db_session"
-    """Key to use for the dependency injection of database transaction."""
-    pool_app_state_key: str = "db_pool"
-    """Key under which to store the asyncpg pool in the application :class:`State <.datastructures.State>`
-    instance.
-    """
+    connection_dependency_key: str = "db_connection"
+    """Key to use for the dependency injection of database connection."""
+    transaction_dependency_key: str = "db_transaction"
+    """Key to use for the dependency injection of database connection."""
     json_deserializer: Callable[[str], Any] = decode_json
     """For dialects that support the :class:`JSON <sqlalchemy.types.JSON>` datatype, this is a Python callable that will
     convert a JSON string to a Python object. By default, this is set to Litestar's
@@ -189,7 +189,12 @@ class AsyncpgConfig:
         Returns:
             A string keyed dict of names to be added to the namespace for signature forward reference resolution.
         """
-        return {}
+        return {
+            "Transaction": Transaction,
+            "Pool": Pool,
+            "Connection": Connection,
+            "PoolConnectionProxy": PoolConnectionProxy,
+        }
 
     async def on_shutdown(self, app: Litestar) -> None:
         """Disposes of the Asyncpg pool.
@@ -200,11 +205,11 @@ class AsyncpgConfig:
         Returns:
             None
         """
-        pool = cast("Pool | None", app.state.pop(self.pool_app_state_key))
+        pool = cast("Pool | None", app.state.pop(POOL_SCOPE_KEY))
         if pool is not None:
             await pool.close()
 
-    def on_startup(self, app: Litestar) -> None:
+    async def on_startup(self, app: Litestar) -> None:
         """Create the Asyncpg pool.
 
         Args:
@@ -213,9 +218,9 @@ class AsyncpgConfig:
         Returns:
             None
         """
-        self.update_app_state(app)
+        await self.update_app_state(app)
 
-    def create_pool(self) -> Pool[Any]:
+    async def create_pool(self) -> Pool:
         """Return a pool. If none exists yet, create one.
 
         Returns:
@@ -228,7 +233,7 @@ class AsyncpgConfig:
             raise ImproperlyConfiguredException("One of 'pool_config' or 'pool_instance' must be provided.")
 
         pool_config = self.pool_config_dict
-        self.pool_instance = asyncpg_create_pool(**pool_config)
+        self.pool_instance = await asyncpg_create_pool(**pool_config)
         if self.pool_instance is None:
             raise ImproperlyConfiguredException(
                 "Could not configure the 'pool_instance'. Please check your configuration."
@@ -236,7 +241,19 @@ class AsyncpgConfig:
 
         return self.pool_instance
 
-    def provide_pool(self, state: State) -> Pool[Any]:
+    async def create_app_state_items(self) -> dict[str, Any]:
+        """Key/value pairs to be stored in application state."""
+        return {POOL_SCOPE_KEY: await self.create_pool()}
+
+    async def update_app_state(self, app: Litestar) -> None:
+        """Set the app state with engine and session.
+
+        Args:
+            app: The ``Litestar`` instance.
+        """
+        app.state.update(await self.create_app_state_items())
+
+    async def provide_pool(self, state: State) -> Pool:
         """Create a pool instance.
 
         Args:
@@ -245,9 +262,9 @@ class AsyncpgConfig:
         Returns:
             A Pool instance.
         """
-        return cast("Pool[Any]", state.get(self.pool_app_state_key))
+        return cast("Pool", state.get(POOL_SCOPE_KEY))
 
-    async def provide_connection(self, state: State, scope: Scope) -> Connection[Any] | PoolConnectionProxy[Any]:
+    async def provide_connection(self, state: State, scope: Scope) -> PoolConnectionProxy:
         """Create a connection instance.
 
         Args:
@@ -257,23 +274,28 @@ class AsyncpgConfig:
         Returns:
             A connection instance.
         """
-        connection = cast(
-            "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-        )
+        connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
         if connection is None:
-            pool = self.provide_pool(state=state)
+            pool = await self.provide_pool(state=state)
             connection = await pool.acquire()
-            set_litestar_scope_state(scope, SESSION_SCOPE_KEY, connection)
+            transaction = connection.transaction()
+            set_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY, transaction)
+            set_litestar_scope_state(scope, CONNECTION_SCOPE_KEY, connection)
         return connection
 
-    def create_app_state_items(self) -> dict[str, Any]:
-        """Key/value pairs to be stored in application state."""
-        return {self.pool_app_state_key: self.create_pool()}
-
-    def update_app_state(self, app: Litestar) -> None:
-        """Set the app state with engine and session.
+    async def provide_transaction(self, state: State, scope: Scope) -> Transaction:
+        """Create a transaction instance.
 
         Args:
-            app: The ``Litestar`` instance.
+            state: The ``Litestar.state`` instance.
+            scope: The current connection's scope.
+
+        Returns:
+            A transaction instance.
         """
-        app.state.update(self.create_app_state_items())
+        transaction = cast("Transaction | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
+        if transaction is None:
+            connection = await self.provide_connection(state=state, scope=scope)
+            transaction = connection.transaction()
+            set_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY, transaction)
+        return transaction

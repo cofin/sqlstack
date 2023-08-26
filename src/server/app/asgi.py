@@ -12,11 +12,13 @@ def create_app() -> Litestar:
 
     from litestar import Litestar
 
-    from app import domain
+    from app.domain import plugins
+    from app.domain.system.controllers import SystemController
 
     return Litestar(
+        route_handlers=[SystemController],
         plugins=[
-            domain.plugins.asyncpg,
-            domain.plugins.aiosql,
+            plugins.asyncpg,
+            plugins.aiosql,
         ],
     )
