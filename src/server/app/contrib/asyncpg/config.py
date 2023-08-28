@@ -233,13 +233,20 @@ class AsyncpgConfig:
             raise ImproperlyConfiguredException("One of 'pool_config' or 'pool_instance' must be provided.")
 
         pool_config = self.pool_config_dict
-        self.pool_instance = await asyncpg_create_pool(**pool_config)
+
+        self.pool_instance = await asyncpg_create_pool(**pool_config, init=self.init_connection)
         if self.pool_instance is None:
             raise ImproperlyConfiguredException(
                 "Could not configure the 'pool_instance'. Please check your configuration."
             )
 
         return self.pool_instance
+
+    async def init_connection(self, conn: Connection) -> None:
+        """Callback that is executed on database connection initialization."""
+        await conn.set_type_codec(
+            "json", encoder=self.json_serializer, decoder=self.json_deserializer, schema="pg_catalog"
+        )
 
     async def create_app_state_items(self) -> dict[str, Any]:
         """Key/value pairs to be stored in application state."""
