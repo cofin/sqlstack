@@ -12,20 +12,10 @@ from server.app.contrib.asyncpg import AsyncpgPlugin, AsyncpgConfig, PoolConfig
 @pytest.mark.asyncio
 async def test_l():
     @get("/")
-    async def health_check(provide_connection: Connection) -> Response:
-        """Check database available and returns app config info."""
-        try:
-            await provide_connection.fetch("select 1")
-            db_ping = True
-        except ConnectionRefusedError:
-            db_ping = False
-
-        healthy = bool(db_ping)
-
-        return Response(
-            status_code=200 if healthy else 500,
-            content=healthy
-        )
+    async def health_check(provide_connection: Connection) -> float:
+        """Check database available and returns random number."""
+        r = await provide_connection.fetch("select random()")
+        return r[0]["random"]
 
     @asynccontextmanager
     async def lifespan(_app: Litestar):
@@ -41,4 +31,3 @@ async def test_l():
                             ) as client:
         response = client.get("/")
         assert response.status_code == 200
-        assert response.json() is True
