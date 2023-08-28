@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast, AsyncGenerator
@@ -14,7 +13,7 @@ from litestar.constants import HTTP_DISCONNECT, HTTP_RESPONSE_START, WEBSOCKET_C
 from litestar.exceptions import ImproperlyConfiguredException
 from litestar.serialization import decode_json, encode_json
 from litestar.types import Empty
-from litestar.utils import delete_litestar_scope_state, get_litestar_scope_state, set_litestar_scope_state
+from litestar.utils import get_litestar_scope_state, set_litestar_scope_state
 from litestar.utils.dataclass import simple_asdict
 
 if TYPE_CHECKING:
