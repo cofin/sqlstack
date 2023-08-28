@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from litestar.plugins import InitPluginProtocol
+from litestar.di import Provide
 
 if TYPE_CHECKING:
     from litestar.config.app import AppConfig
@@ -42,8 +43,15 @@ class AsyncpgPlugin(InitPluginProtocol, SlotsBase):
         Args:
             app_config: The :class:`AppConfig <.config.app.AppConfig>` instance.
         """
+
+        app_config.dependencies.update(
+            {
+                "provide_pool": Provide(self._config.provide_pool),
+                "provide_connection": Provide(self._config.provide_connection),
+            }
+        )
         app_config.before_send.append(self._config.before_send_handler)
-        app_config.on_startup.insert(0, self._config.on_startup)
-        app_config.on_shutdown.append(self._config.on_shutdown)
+        app_config.lifespan.append(self._config.lifespan)
         app_config.signature_namespace.update(self._config.signature_namespace)
+
         return app_config
