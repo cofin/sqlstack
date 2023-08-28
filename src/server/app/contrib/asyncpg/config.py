@@ -24,8 +24,7 @@ if TYPE_CHECKING:
 
     from litestar import Litestar
     from litestar.datastructures.state import State
-    from litestar.types import BeforeMessageSendHookHandler, EmptyType, Message, Scope
-    from litestar.types.asgi_types import HTTPResponseStartEvent
+    from litestar.types import EmptyType, Scope
 
 POOL_SCOPE_KEY = "_asyncpg_db_pool"
 SESSION_SCOPE_KEY = "_asyncpg_db_connection"
@@ -39,51 +38,6 @@ TransactionT = TypeVar("TransactionT", bound=Transaction)
 
 class SlotsBase:
     __slots__ = ("_config",)
-
-
-async def default_before_send_handler(message: Message, scope: Scope) -> None:
-    """Handle closing and cleaning up sessions before sending.
-
-    Args:
-        message: ASGI-``Message``
-        scope: An ASGI-``Scope``
-
-    Returns:
-        None
-    """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
-    if pool and session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-        await pool.release(session)
-        delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-
-
-async def autocommit_before_send_handler(message: Message, scope: Scope) -> None:
-    """Handle commit/rollback, closing and cleaning up sessions before sending.
-
-    Args:
-        message: ASGI-``Message``
-        scope: An ASGI-``Scope``
-
-    Returns:
-        None
-    """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
-    try:
-        if session is not None and message["type"] == HTTP_RESPONSE_START:
-            if 200 <= cast("HTTPResponseStartEvent", message)["status"] < 300:
-                await session.commit()
-            else:
-                await session.rollback()
-    finally:
-        if session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-            await asyncio.wait_for(pool.release(session))
-            delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
 
 
 def serializer(value: Any) -> str:
@@ -144,12 +98,6 @@ class AsyncpgConfig:
 
     pool_config: PoolConfig | None = None
     """Asyncpg Pool configuration"""
-    before_send_handler: BeforeMessageSendHookHandler = default_before_send_handler
-    """Handler to call before the ASGI message is sent.
-
-    The handler should handle closing the session stored in the ASGI scope, if it's still open, and committing and
-    uncommitted data.
-    """
     pool_app_state_key: str = "db_pool"
     """Key under which to store the asyncpg pool in the application :class:`State <.datastructures.State>`
     instance.

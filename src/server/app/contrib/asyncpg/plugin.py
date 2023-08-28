@@ -50,7 +50,6 @@ class AsyncpgPlugin(InitPluginProtocol, SlotsBase):
                 "provide_connection": Provide(self._config.provide_connection),
             }
         )
-        app_config.before_send.append(self._config.before_send_handler)
         app_config.lifespan.append(self._config.lifespan)
         app_config.signature_namespace.update(self._config.signature_namespace)
 
