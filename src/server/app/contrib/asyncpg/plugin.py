@@ -46,7 +46,7 @@ class AsyncpgPlugin(InitPluginProtocol, SlotsBase):
 
         app_config.dependencies.update(
             {
-                "provide_pool": Provide(self._config.provide_pool),
+                "provide_pool": Provide(self._config.provide_pool, sync_to_thread=False),
                 "provide_connection": Provide(self._config.provide_connection),
             }
         )
