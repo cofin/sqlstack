@@ -22,8 +22,9 @@ if TYPE_CHECKING:
     from asyncpg.pool import Pool, PoolConnectionProxy
     from litestar import Litestar
     from litestar.datastructures.state import State
-    from litestar.types import BeforeMessageSendHookHandler, EmptyType, Message, Scope
+    from litestar.types import EmptyType, Message, Scope
     from litestar.types.asgi_types import HTTPResponseStartEvent
+
 
 SESSION_SCOPE_KEY = "_asyncpg_db_connection"
 SESSION_TERMINUS_ASGI_EVENTS = {HTTP_RESPONSE_START, HTTP_DISCONNECT, WEBSOCKET_DISCONNECT, WEBSOCKET_CLOSE}
@@ -129,12 +130,6 @@ class AsyncpgConfig:
 
     pool_config: PoolConfig | None = None
     """Asyncpg Pool configuration"""
-    before_send_handler: BeforeMessageSendHookHandler = default_before_send_handler
-    """Handler to call before the ASGI message is sent.
-
-    The handler should handle closing the session stored in the ASGI scope, if it's still open, and committing and
-    uncommitted data.
-    """
     pool_app_state_key: str = "db_pool"
     """Key under which to store the asyncpg pool in the application :class:`State <.datastructures.State>`
     instance.
