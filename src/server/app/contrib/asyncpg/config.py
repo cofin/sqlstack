@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar, cast, AsyncGenerator
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from asyncpg import Record
-from asyncpg import create_pool
-from asyncpg.connection import Connection
-from asyncpg.pool import Pool, PoolConnectionProxy
-from asyncpg.transaction import Transaction
+from asyncpg import create_pool as asyncpg_create_pool
 from litestar.constants import HTTP_DISCONNECT, HTTP_RESPONSE_START, WEBSOCKET_CLOSE, WEBSOCKET_DISCONNECT
 from litestar.exceptions import ImproperlyConfiguredException
 from litestar.serialization import decode_json, encode_json
@@ -19,22 +15,19 @@ from litestar.utils.dataclass import simple_asdict
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
-    from collections.abc import Callable, Coroutine
+    from collections.abc import AsyncGenerator, Callable, Coroutine
     from typing import Any
 
+    from asyncpg.connection import Connection
+    from asyncpg.pool import Pool, PoolConnectionProxy
     from litestar import Litestar
     from litestar.datastructures.state import State
     from litestar.types import BeforeMessageSendHookHandler, EmptyType, Message, Scope
     from litestar.types.asgi_types import HTTPResponseStartEvent
 
-POOL_SCOPE_KEY = "_asyncpg_db_pool"
 SESSION_SCOPE_KEY = "_asyncpg_db_connection"
 SESSION_TERMINUS_ASGI_EVENTS = {HTTP_RESPONSE_START, HTTP_DISCONNECT, WEBSOCKET_DISCONNECT, WEBSOCKET_CLOSE}
 T = TypeVar("T")
-ConnectionT = TypeVar("ConnectionT", bound=Connection)
-RecordT = TypeVar("RecordT", bound=Record)
-PoolT = TypeVar("PoolT", bound=Pool)
-TransactionT = TypeVar("TransactionT", bound=Transaction)
 
 
 class SlotsBase:
@@ -51,12 +44,8 @@ async def default_before_send_handler(message: Message, scope: Scope) -> None:
     Returns:
         None
     """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
-    if pool and session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-        await pool.release(session)
+    session = cast("Connection | PoolConnectionProxy | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY))
+    if session is not None:
         delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
 
 
@@ -70,10 +59,7 @@ async def autocommit_before_send_handler(message: Message, scope: Scope) -> None
     Returns:
         None
     """
-    session = cast(
-        "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-    )
-    pool = cast("Pool[Any] | None", get_litestar_scope_state(scope, POOL_SCOPE_KEY))
+    session = cast("Connection | PoolConnectionProxy | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY))
     try:
         if session is not None and message["type"] == HTTP_RESPONSE_START:
             if 200 <= cast("HTTPResponseStartEvent", message)["status"] < 300:
@@ -82,7 +68,6 @@ async def autocommit_before_send_handler(message: Message, scope: Scope) -> None
                 await session.rollback()
     finally:
         if session and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-            await asyncio.wait_for(pool.release(session))
             delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
 
 
@@ -188,21 +173,38 @@ class AsyncpgConfig:
         """
         return {}
 
+    async def create_pool(self) -> Pool:
+        """Return a pool. If none exists yet, create one.
+
+        Returns:
+            Getter that returns the pool instance used by the plugin.
+        """
+        if self.pool_instance is not None:
+            return self.pool_instance
+
+        if self.pool_config is None:
+            raise ImproperlyConfiguredException("One of 'pool_config' or 'pool_instance' must be provided.")
+
+        pool_config = self.pool_config_dict
+        self.pool_instance = await asyncpg_create_pool(**pool_config)
+        if self.pool_instance is None:
+            raise ImproperlyConfiguredException(
+                "Could not configure the 'pool_instance'. Please check your configuration."
+            )
+        return self.pool_instance
+
     @asynccontextmanager
     async def lifespan(
-            self,
-            _app: Litestar,
+        self,
+        app: Litestar,
     ) -> AsyncGenerator[None, None]:
-        pool_config = self.pool_config_dict
-        dbpool = await create_pool(
-            **pool_config,
-        )
-        _app.state.update({self.pool_app_state_key: dbpool})
+        db_pool = await self.create_pool()
+        app.state.update({self.pool_app_state_key: db_pool})
         try:
             yield
         finally:
-            dbpool.terminate()
-            await dbpool.close()
+            db_pool.terminate()
+            await db_pool.close()
 
     def provide_pool(self, state: State) -> Pool:
         """Create a pool instance.
@@ -225,14 +227,10 @@ class AsyncpgConfig:
         Returns:
             A connection instance.
         """
-        connection = cast(
-            "Connection[Any] | PoolConnectionProxy[Any] | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY)
-        )
+        connection = cast("Connection | PoolConnectionProxy | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY))
         if connection is None:
             pool = state.get(self.pool_app_state_key)
 
             async with pool.acquire() as connection:
                 set_litestar_scope_state(scope, SESSION_SCOPE_KEY, connection)
                 yield connection
-
-

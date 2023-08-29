@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from litestar.plugins import InitPluginProtocol
 from litestar.di import Provide
+from litestar.plugins import InitPluginProtocol
 
 if TYPE_CHECKING:
     from litestar.config.app import AppConfig
