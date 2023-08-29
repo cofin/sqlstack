@@ -43,15 +43,15 @@ class AsyncpgPlugin(InitPluginProtocol, SlotsBase):
         Args:
             app_config: The :class:`AppConfig <.config.app.AppConfig>` instance.
         """
+
         app_config.dependencies.update(
             {
-                self._config.pool_dependency_key: Provide(self._config.provide_pool),
-                self._config.connection_dependency_key: Provide(self._config.provide_connection),
-                self._config.transaction_dependency_key: Provide(self._config.provide_transaction),
+                "provide_pool": Provide(self._config.provide_pool),
+                "provide_connection": Provide(self._config.provide_connection),
             }
         )
         app_config.before_send.append(self._config.before_send_handler)
-        app_config.on_startup.insert(0, self._config.on_startup)
-        app_config.on_shutdown.append(self._config.on_shutdown)
+        app_config.lifespan.append(self._config.lifespan)
         app_config.signature_namespace.update(self._config.signature_namespace)
+
         return app_config

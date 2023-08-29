@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
 from asyncpg import Record
 from asyncpg import create_pool as asyncpg_create_pool
-from asyncpg.connection import Connection
-from asyncpg.pool import Pool, PoolConnectionProxy
-from asyncpg.transaction import Transaction
 from litestar.constants import HTTP_DISCONNECT, HTTP_RESPONSE_START, WEBSOCKET_CLOSE, WEBSOCKET_DISCONNECT
 from litestar.exceptions import ImproperlyConfiguredException
 from litestar.serialization import decode_json, encode_json
@@ -17,24 +15,19 @@ from litestar.utils.dataclass import simple_asdict
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
-    from collections.abc import Callable, Coroutine
+    from collections.abc import AsyncGenerator, Callable, Coroutine
     from typing import Any
 
+    from asyncpg.connection import Connection
+    from asyncpg.pool import Pool, PoolConnectionProxy
     from litestar import Litestar
     from litestar.datastructures.state import State
     from litestar.types import BeforeMessageSendHookHandler, EmptyType, Message, Scope
-    from litestar.types.asgi_types import HTTPResponseStartEvent
 
-POOL_SCOPE_KEY = "_asyncpg_db_pool"
-CONNECTION_SCOPE_KEY = "_asyncpg_db_connection"
-TRANSACTION_SCOPE_KEY = "_asyncpg_db_transaction"
 
+SESSION_SCOPE_KEY = "_asyncpg_db_connection"
 SESSION_TERMINUS_ASGI_EVENTS = {HTTP_RESPONSE_START, HTTP_DISCONNECT, WEBSOCKET_DISCONNECT, WEBSOCKET_CLOSE}
 T = TypeVar("T")
-ConnectionT = TypeVar("ConnectionT", bound=Connection | PoolConnectionProxy)
-RecordT = TypeVar("RecordT", bound=Record)
-PoolT = TypeVar("PoolT", bound=Pool)
-TransactionT = TypeVar("TransactionT", bound=Transaction)
 
 
 class SlotsBase:
@@ -51,40 +44,9 @@ async def default_before_send_handler(message: Message, scope: Scope) -> None:
     Returns:
         None
     """
-    connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
-    pool = connection._holder._pool if connection else None
-    if pool and connection and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-        # wait for a max of 5 seconds to close the session.
-        await pool.release(connection, timeout=5)
-        delete_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY)
-        delete_litestar_scope_state(scope, CONNECTION_SCOPE_KEY)
-
-
-async def autocommit_before_send_handler(message: Message, scope: Scope) -> None:
-    """Handle commit/rollback, closing and cleaning up sessions before sending.
-
-    Args:
-        message: ASGI-``Message``
-        scope: An ASGI-``Scope``
-
-    Returns:
-        None
-    """
-    connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
-    pool = connection._holder._pool if connection else None
-    transaction = cast("Transaction | None", get_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY))
-    try:
-        if transaction is not None and message["type"] == HTTP_RESPONSE_START:
-            if 200 <= cast("HTTPResponseStartEvent", message)["status"] < 300:
-                await transaction.commit()
-            else:
-                await transaction.rollback()
-    finally:
-        if transaction and connection and pool and message["type"] in SESSION_TERMINUS_ASGI_EVENTS:
-            # wait for a max of 5 seconds to close the session.
-            await pool.release(connection, timeout=5)
-            delete_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY)
-            delete_litestar_scope_state(scope, CONNECTION_SCOPE_KEY)
+    session = cast("Connection | PoolConnectionProxy | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY))
+    if session is not None:
+        delete_litestar_scope_state(scope, SESSION_SCOPE_KEY)
 
 
 def serializer(value: Any) -> str:
@@ -145,18 +107,16 @@ class AsyncpgConfig:
 
     pool_config: PoolConfig | None = None
     """Asyncpg Pool configuration"""
+    pool_app_state_key: str = "db_pool"
+    """Key under which to store the asyncpg pool in the application :class:`State <.datastructures.State>`
+    instance.
+    """
     before_send_handler: BeforeMessageSendHookHandler = default_before_send_handler
     """Handler to call before the ASGI message is sent.
 
     The handler should handle closing the session stored in the ASGI scope, if it's still open, and committing and
     uncommitted data.
     """
-    pool_dependency_key: str = "db_pool"
-    """Key to use for the dependency injection of database pool."""
-    connection_dependency_key: str = "db_connection"
-    """Key to use for the dependency injection of database connection."""
-    transaction_dependency_key: str = "db_transaction"
-    """Key to use for the dependency injection of database connection."""
     json_deserializer: Callable[[str], Any] = decode_json
     """For dialects that support the :class:`JSON <sqlalchemy.types.JSON>` datatype, this is a Python callable that will
     convert a JSON string to a Python object. By default, this is set to Litestar's
@@ -189,36 +149,7 @@ class AsyncpgConfig:
         Returns:
             A string keyed dict of names to be added to the namespace for signature forward reference resolution.
         """
-        return {
-            "Transaction": Transaction,
-            "Pool": Pool,
-            "Connection": Connection,
-            "PoolConnectionProxy": PoolConnectionProxy,
-        }
-
-    async def on_shutdown(self, app: Litestar) -> None:
-        """Disposes of the Asyncpg pool.
-
-        Args:
-            app: The ``Litestar`` instance.
-
-        Returns:
-            None
-        """
-        pool = cast("Pool | None", app.state.pop(POOL_SCOPE_KEY))
-        if pool is not None:
-            await pool.close()
-
-    async def on_startup(self, app: Litestar) -> None:
-        """Create the Asyncpg pool.
-
-        Args:
-            app: The ``Litestar`` instance.
-
-        Returns:
-            None
-        """
-        await self.update_app_state(app)
+        return {}
 
     async def create_pool(self) -> Pool:
         """Return a pool. If none exists yet, create one.
@@ -233,34 +164,27 @@ class AsyncpgConfig:
             raise ImproperlyConfiguredException("One of 'pool_config' or 'pool_instance' must be provided.")
 
         pool_config = self.pool_config_dict
-
-        self.pool_instance = await asyncpg_create_pool(**pool_config, init=self.init_connection)
+        self.pool_instance = await asyncpg_create_pool(**pool_config)
         if self.pool_instance is None:
             raise ImproperlyConfiguredException(
                 "Could not configure the 'pool_instance'. Please check your configuration."
             )
-
         return self.pool_instance
 
-    async def init_connection(self, conn: Connection) -> None:
-        """Callback that is executed on database connection initialization."""
-        await conn.set_type_codec(
-            "json", encoder=self.json_serializer, decoder=self.json_deserializer, schema="pg_catalog"
-        )
+    @asynccontextmanager
+    async def lifespan(
+        self,
+        app: Litestar,
+    ) -> AsyncGenerator[None, None]:
+        db_pool = await self.create_pool()
+        app.state.update({self.pool_app_state_key: db_pool})
+        try:
+            yield
+        finally:
+            db_pool.terminate()
+            await db_pool.close()
 
-    async def create_app_state_items(self) -> dict[str, Any]:
-        """Key/value pairs to be stored in application state."""
-        return {POOL_SCOPE_KEY: await self.create_pool()}
-
-    async def update_app_state(self, app: Litestar) -> None:
-        """Set the app state with engine and session.
-
-        Args:
-            app: The ``Litestar`` instance.
-        """
-        app.state.update(await self.create_app_state_items())
-
-    async def provide_pool(self, state: State) -> Pool:
+    def provide_pool(self, state: State) -> Pool:
         """Create a pool instance.
 
         Args:
@@ -269,9 +193,11 @@ class AsyncpgConfig:
         Returns:
             A Pool instance.
         """
-        return cast("Pool", state.get(POOL_SCOPE_KEY))
+        return cast("Pool", state.get(self.pool_app_state_key))
 
-    async def provide_connection(self, state: State, scope: Scope) -> PoolConnectionProxy:
+    async def provide_connection(
+        self, state: State, scope: Scope
+    ) -> AsyncGenerator[Connection | PoolConnectionProxy, None]:
         """Create a connection instance.
 
         Args:
@@ -281,28 +207,10 @@ class AsyncpgConfig:
         Returns:
             A connection instance.
         """
-        connection = cast("PoolConnectionProxy | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
+        connection = cast("Connection | PoolConnectionProxy | None", get_litestar_scope_state(scope, SESSION_SCOPE_KEY))
         if connection is None:
-            pool = await self.provide_pool(state=state)
-            connection = await pool.acquire()
-            transaction = connection.transaction()
-            set_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY, transaction)
-            set_litestar_scope_state(scope, CONNECTION_SCOPE_KEY, connection)
-        return connection
+            pool = cast("Pool", state.get(self.pool_app_state_key))
 
-    async def provide_transaction(self, state: State, scope: Scope) -> Transaction:
-        """Create a transaction instance.
-
-        Args:
-            state: The ``Litestar.state`` instance.
-            scope: The current connection's scope.
-
-        Returns:
-            A transaction instance.
-        """
-        transaction = cast("Transaction | None", get_litestar_scope_state(scope, CONNECTION_SCOPE_KEY))
-        if transaction is None:
-            connection = await self.provide_connection(state=state, scope=scope)
-            transaction = connection.transaction()
-            set_litestar_scope_state(scope, TRANSACTION_SCOPE_KEY, transaction)
-        return transaction
+            async with pool.acquire() as connection:
+                set_litestar_scope_state(scope, SESSION_SCOPE_KEY, connection)
+                yield connection
