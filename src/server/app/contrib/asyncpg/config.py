@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, TypeVar, cast
 
 from asyncpg import Record
 from asyncpg import create_pool as asyncpg_create_pool
+from asyncpg.connection import Connection
+from asyncpg.pool import Pool, PoolConnectionProxy
 from litestar.constants import HTTP_DISCONNECT, HTTP_RESPONSE_START, WEBSOCKET_CLOSE, WEBSOCKET_DISCONNECT
 from litestar.exceptions import ImproperlyConfiguredException
 from litestar.serialization import decode_json, encode_json
@@ -18,8 +20,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Coroutine
     from typing import Any
 
-    from asyncpg.connection import Connection
-    from asyncpg.pool import Pool, PoolConnectionProxy
     from litestar import Litestar
     from litestar.datastructures.state import State
     from litestar.types import BeforeMessageSendHookHandler, EmptyType, Message, Scope
@@ -149,7 +149,7 @@ class AsyncpgConfig:
         Returns:
             A string keyed dict of names to be added to the namespace for signature forward reference resolution.
         """
-        return {}
+        return {"Connection": Connection, "Pool": Pool, "PoolConnectionProxy": PoolConnectionProxy}
 
     async def create_pool(self) -> Pool:
         """Return a pool. If none exists yet, create one.
