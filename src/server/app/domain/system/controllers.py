@@ -7,6 +7,9 @@ from litestar.response import Response
 
 from app.domain.system import schemas
 
+__all__ = ["SystemController"]
+
+
 if TYPE_CHECKING:
     from asyncpg import Connection
 

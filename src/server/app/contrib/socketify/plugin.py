@@ -6,6 +6,9 @@ from litestar.plugins import CLIPluginProtocol, InitPluginProtocol
 
 from .cli import run_command
 
+__all__ = ["SlotsBase", "SocketifyPlugin"]
+
+
 if TYPE_CHECKING:
     from click import Group
 

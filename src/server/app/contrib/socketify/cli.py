@@ -7,6 +7,8 @@ import click
 from click import Context, command, option
 from litestar.cli._utils import LitestarEnv, console, show_app_info
 
+__all__ = ["run_command"]
+
 
 @command(name="run")
 @option("-r", "--reload", help="Reload server on changes", default=False, is_flag=True)

@@ -74,4 +74,3 @@ lint:													## Lint source files
 build:                        							## Install the project in dev mode.
 	@echo "=> Building Application..."
 	@pdm build
-

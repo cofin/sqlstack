@@ -15,7 +15,7 @@ __all__ = ["AiosqlQueryManager"]
 AiosqlQueryManagerT = TypeVar("AiosqlQueryManagerT", bound="AiosqlQueryManager")
 
 
-class QueryNotFoundError(ApplicationError):  # type: ignore
+class QueryNotFoundError(ApplicationError):
     """Query Not Found"""
 
 
