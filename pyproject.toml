@@ -7,12 +7,11 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-  "aiosql>=9.0",
-  "litestar[cli,jwt,redis]>=2.0.0",
-  "passlib[argon2]>=1.7.4",
-  "socketify>=0.0.27",
-  "uvloop>=0.17.0",
-  "litestar-asyncpg>=0.1.0",
+    "aiosql>=9.0",
+    "litestar[cli,jwt,redis]>=2.0.0",
+    "passlib[argon2]>=1.7.4",
+    "litestar-asyncpg>=0.1.0",
+    "uvicorn[standard]>=0.23.2",
 ]
 description = "Fullstack but with SQL and no ORM"
 dynamic = [

@@ -13,8 +13,6 @@ __all__ = ["SystemController"]
 if TYPE_CHECKING:
     from asyncpg import Connection
 
-    pass
-
 
 OnlineOffline = TypeVar("OnlineOffline", bound=Literal["online", "offline"])
 
