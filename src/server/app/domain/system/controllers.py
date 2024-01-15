@@ -37,10 +37,10 @@ class SystemController(Controller):
         except ConnectionRefusedError:
             db_ping = False
 
-        healthy = bool(db_ping)
+        healthy = db_ping
 
         return Response(
-            content=schemas.SystemHealth(database_status="online" if db_ping else "offline"),
+            content=schemas.SystemHealth(database_status="online" if healthy else "offline"),
             status_code=200 if healthy else 500,
             media_type=MediaType.JSON,
         )

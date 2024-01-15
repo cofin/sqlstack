@@ -33,7 +33,7 @@ upgrade:												## Upgrade all dependencies to the latest stable versions
 install:												## Install the project in dev mode.
 	@if ! pdm --version > /dev/null; then echo 'pdm is required, installing from from https://pdm.fming.dev/'; curl -sSL https://pdm.fming.dev/install-pdm.py | python3 - ; fi
 	@if [ "$(VENV_EXISTS)" ]; then echo "Removing existing environment" && rm -Rf .venv;  fi
-	if [ "$(USING_PDM)" ]; then $(PDM) config venv.in_project true && python3 -m venv --copies .venv && source .venv/bin/activate && .venv/bin/pip install -U wheel setuptools cython pip; fi
+	if [ "$(USING_PDM)" ]; then $(PDM) config venv.in_project true && python3 -m venv --copies .venv && source .venv/bin/activate && .venv/bin/pip install -U wheel mypy setuptools cython pip; fi
 	if [ "$(USING_PDM)" ]; then $(PDM) install -G:all ; fi
 	@echo "=> Install complete.  ** If you want to re-install re-run 'make install'"
 

@@ -20,8 +20,5 @@ def create_app() -> Litestar:
 
     return Litestar(
         route_handlers=[SystemController],
-        plugins=[
-            plugins.asyncpg,
-            plugins.aiosql,
-        ],
+        plugins=[plugins.asyncpg, plugins.granian],
     )

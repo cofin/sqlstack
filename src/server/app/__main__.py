@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-__all__ = ["run_cli"]
+__all__ = ("run_cli",)
 
 
 def run_cli() -> None:
