@@ -38,12 +38,12 @@ requires = ["hatchling"]
 allow-direct-references = true
 
 [tool.hatch.build]
-dev-mode-dirs = ["src/server"]
-include = ["src/server/app/**/*.sql"]
-packages = ["src/server/app"]
+dev-mode-dirs = ["src"]
+include = ["src/app/**/*.sql"]
+packages = ["src/app"]
 
 [tool.hatch.version]
-path = "src/server/app/__version__.py"
+path = "src/app/__version__.py"
 
 
 [tool.pdm.scripts]
@@ -199,7 +199,7 @@ line-length = 120
 select = ["ALL"]
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-src = ["src/server", "tests/"]
+src = ["src/", "tests/"]
 target-version = "py311"
 
 [tool.slotscheck]
@@ -265,4 +265,4 @@ module = ["saq.*", "uvicorn.*", "aiohttp.*", "jsbeautifier", "jsbeautifier.*", "
 
 [tool.pyright]
 exclude = ["scripts", "docs"]
-include = ["src/server", "tests"]
+include = ["src", "tests"]
